@@ -104,16 +104,18 @@ def client_listening(socket_connection, current_user_id):
     # keep listening client msg
     while True:
         client_msg = fetch_message(socket_connection, current_user_id)
-        if isinstance(client_msg, str) and len(client_msg) != 0:
+        if len(client_msg) != 0:
             if client_msg == 'exit':
-                send_message(socket_connection, "exit")
-                sleep(2)
+                # send_message(socket_connection, "exit")
+                # sleep(2)
                 user_leave(current_user_id)
                 return
-            if "mute>" in client_msg:
+            elif "mute>" in client_msg:
                 pass
-            if "kick>" in client_msg:
+            elif "kick>" in client_msg:
                 pass
+            else:
+                broadcasting(client_msg, current_user_id)
 
 
         # if isinstance(data, str):
@@ -145,30 +147,24 @@ def client_listening(socket_connection, current_user_id):
 
 
 def fetch_message(socket_connection, current_user_id):
+    global client_users
+
+    tmp = ''
     try:
-        socket_connection.recv(1024).decode('utf-8')
+        tmp = client_users[current_user_id].recv(1024).decode('utf-8')
     except:
         user_leave(current_user_id)
         # socket_connection.close()
+    return tmp
 
 
 
-
-
-
-
-
-def broadcasting(message, self_user_id):
+def broadcasting(message, current_user_id):
     global client_users
+    for each_user_id in client_users.keys():
+        if each_user_id != current_user_id:
+            send_message(client_users[each_user_id], str(current_user_id)+":"+message)
 
-    for user_id in client_users.keys():
-        if user_id != self_user_id:
-            try:
-                client_users[user_id].send(message.encode('utf-8'))
-            except OSError as err:
-                print("OS error: {0}".format(err))
-            except:
-                client_users[self_user_id].close()
 
 
 if __name__ == '__main__':
