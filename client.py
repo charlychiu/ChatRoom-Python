@@ -1,5 +1,6 @@
 import socket
 from threading import Thread
+import sys
 from time import sleep
 
 def client():
@@ -13,9 +14,10 @@ def client():
     thread.start()
 
     while True:
-        sleep(1)
         message = input("")
         client_socket.send(message.encode('utf-8'))
+
+
 
 def listen_from_server(conn):
     data = conn.recv(1024).decode('utf-8')
@@ -23,6 +25,10 @@ def listen_from_server(conn):
 
     while True:
         data = conn.recv(1024).decode('utf-8')
+        if data == 'exit':
+            conn.close()
+            sys.exit(0)
+            return
         print('> ' + data)
 
     # while message.lower().strip() != "bye":
