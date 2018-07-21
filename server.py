@@ -110,11 +110,14 @@ def client_listening(socket_connection, current_user_id):
                 # sleep(2)
                 user_leave(current_user_id)
                 return
+            elif "unmute>" in client_msg:
+                unmuted_user(client_msg, current_user_id)
             elif "mute>" in client_msg:
-                pass
+                muted_user(client_msg, current_user_id)
             elif "kick>" in client_msg:
                 pass
             else:
+                client_msg = filter_muted_user(client_msg, current_user_id)
                 broadcasting(client_msg, current_user_id)
 
 
@@ -158,12 +161,47 @@ def fetch_message(socket_connection, current_user_id):
     return tmp
 
 
+def muted_user(message, current_user_id):
+    global admin_user_id
+    if current_user_id == admin_user_id:
+        tmp = message.split()
+        if len(tmp) == 2:
+            muted_user_id = tmp[1]
+            if muted_user_id != current_user_id:
+                global mute_users
+                mute_users.append(int(muted_user_id))
+                print("add muted user", muted_user_id)
+
+def unmuted_user(message, current_user_id):
+    global admin_user_id
+    if current_user_id == admin_user_id:
+        tmp = message.split()
+        if len(tmp) == 2:
+            unmuted_user_id = tmp[1]
+            if unmuted_user_id != current_user_id:
+                global mute_users
+                mute_users.remove(int(unmuted_user_id))
+                print("remove muted user", unmuted_user_id)
+
+
+def filter_muted_user(message, current_user_id):
+    global mute_users
+    if current_user_id in mute_users:
+        global client_users
+        send_message(client_users[current_user_id], "you had been muted")
+        return ''
+    else:
+        return message
+
+
+
 
 def broadcasting(message, current_user_id):
     global client_users
-    for each_user_id in client_users.keys():
-        if each_user_id != current_user_id:
-            send_message(client_users[each_user_id], str(current_user_id)+":"+message)
+    if message != '':
+        for each_user_id in client_users.keys():
+            if each_user_id != current_user_id:
+                send_message(client_users[each_user_id], str(current_user_id)+":"+message)
 
 
 
