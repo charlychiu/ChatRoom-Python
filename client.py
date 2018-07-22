@@ -15,21 +15,34 @@ def client():
 
     while True:
         message = input("")
-        client_socket.send(message.encode('utf-8'))
+        if message == 'exit':
+            client_socket.send(message.encode('utf-8'))
+            client_socket.close()
+            sys.exit(0)
+            return
+        else:
+            client_socket.send(message.encode('utf-8'))
 
 
 
 def listen_from_server(conn):
-    data = conn.recv(1024).decode('utf-8')
-    print('Received from server :' + data + '\n')
+    # data = conn.recv(1024).decode('utf-8')
+    # print('Received from server :' + data + '\n')
 
     while True:
-        data = conn.recv(1024).decode('utf-8')
-        if data == 'exit':
-            conn.close()
-            sys.exit(0)
+        try:
+            tmp = conn.recv(1024)
+        except:
             return
-        print('> ' + data)
+            pass
+        if not tmp:
+            tmp = ''
+            pass
+        else:
+            tmp = tmp.decode('utf-8')
+
+        # data = conn.recv(1024).decode('utf-8')
+        print('> ' + tmp)
 
     # while message.lower().strip() != "bye":
     #

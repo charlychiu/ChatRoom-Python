@@ -22,10 +22,9 @@ def server():
     any two hosts The second argument is the type of socket.
     SOCK_STREAM means that data or characters are read in
     a continuous flow."""
-    # server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    server_socket = socket.socket()
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((host, port))
     server_socket.listen(99)
 
@@ -39,11 +38,15 @@ def server():
 def user_join(socket_connection):
     global user_id
     user_id += 1
-
     current_user_id = user_id
 
     global client_users
     client_users[current_user_id] = socket_connection
+
+    # Assign room admin
+    if len(client_users) == 1:
+        global admin_user_id
+        admin_user_id = current_user_id
 
     # Start Thread session
     global client_users_thread
@@ -51,38 +54,33 @@ def user_join(socket_connection):
                                                             args=(socket_connection, current_user_id))
     client_users_thread[current_user_id].start()
 
-    # Assign room admin
-    if len(client_users) == 1:
-        global admin_user_id
-        admin_user_id = current_user_id
-
     print(current_user_id, "join")
+    broadcasting("***join chatroom***", current_user_id)
 
 
 def client_thread(connection, current_user_id):
     global admin_user_id
 
+    # first welcome msg to client when enter chat room
+    send_message(connection, "Server: Hello")
+
     # let current user know itself is admin
     if current_user_id == admin_user_id:
-        send_message(connection, "you are room admin!")
+        send_message(connection, "Server: you are room admin!")
 
-    # first welcome msg to client when enter chat room
-    send_message(connection, "Hello")
-
-    client_listening(connection, current_user_id)
+    client_listening(current_user_id)
 
 
-
-def user_leave(current_user_id):
-    # global user_id
-    # user_id -= 1
-
+def user_leave(current_user_id, avtive = True):
+    broadcasting("***leave chatroom***", current_user_id)
     # close connection
     global client_users
-    try:
-        client_users[current_user_id].close()
-    except:
-        pass
+    global client_users_thread
+    if avtive:
+        try:
+            client_users[current_user_id].close()
+        except:
+            pass
     del client_users[current_user_id]
     del client_users_thread[current_user_id]
 
@@ -99,15 +97,13 @@ def send_message(socket_connection, message):
     tmp = message + "\n"
     socket_connection.send(tmp.encode('utf-8'))
 
-def client_listening(socket_connection, current_user_id):
 
+def client_listening(current_user_id):
     # keep listening client msg
     while True:
-        client_msg = fetch_message(socket_connection, current_user_id)
+        client_msg = fetch_message(current_user_id)
         if len(client_msg) != 0:
             if client_msg == 'exit':
-                # send_message(socket_connection, "exit")
-                # sleep(2)
                 user_leave(current_user_id)
                 return
             elif "unmute>" in client_msg:
@@ -115,50 +111,38 @@ def client_listening(socket_connection, current_user_id):
             elif "mute>" in client_msg:
                 muted_user(client_msg, current_user_id)
             elif "kick>" in client_msg:
-                pass
+                kick_user_processing(client_msg, current_user_id)
+            elif "crush" == client_msg:
+                return
             else:
                 client_msg = filter_muted_user(client_msg, current_user_id)
                 broadcasting(client_msg, current_user_id)
 
 
-        # if isinstance(data, str):
-        #     if len(data) != 0:
-        #         global client_users_thread
-        #         if data == 'exit':
-        #             # close connection
-        #             client_users[user_id].close()
-        #             del client_users[user_id]
-        #             del client_users_thread[user_id]
-        #             # admin leave , clean mute_users
-        #             if user_id == admin_user_id:
-        #                 global mute_users
-        #                 mute_users = []
-        #             return
-        #         else:
-        #             # and broadcast to other user in chatroom
-        #             if user_id == admin_user_id:
-        #
-        #                     data = data.split()[1]
-        #                     if int(data) in client_users_thread.keys():
-        #                         mute_users.append(int(data))
-        #                         print("add mute")
-        #                     print(data)
-        #                 else:
-        #                     broadcasting(message=userTemp + data, self_user_id=user_id)
-        #             else:
-        #                 broadcasting(message=userTemp + data, self_user_id=user_id)
-
-
-def fetch_message(socket_connection, current_user_id):
+def fetch_message(current_user_id):
     global client_users
-
-    tmp = ''
     try:
-        tmp = client_users[current_user_id].recv(1024).decode('utf-8')
+        tmp = client_users[current_user_id].recv(1024)
+        if not tmp:
+            tmp = ''
+            pass
+        else:
+            tmp = tmp.decode('utf-8')
+            return tmp
     except:
-        user_leave(current_user_id)
-        # socket_connection.close()
-    return tmp
+        user_leave(current_user_id, False)
+        return 'crush'
+
+    # return tmp or ""
+
+    # tmp = ''
+    # try:
+    #     tmp = client_users[current_user_id].recv(1024)
+    # except:
+    #     # user_leave(current_user_id)
+    #     pass
+    #     # socket_connection.close()
+    # return tmp
 
 
 def muted_user(message, current_user_id):
@@ -171,6 +155,7 @@ def muted_user(message, current_user_id):
                 global mute_users
                 mute_users.append(int(muted_user_id))
                 print("add muted user", muted_user_id)
+
 
 def unmuted_user(message, current_user_id):
     global admin_user_id
@@ -194,6 +179,15 @@ def filter_muted_user(message, current_user_id):
         return message
 
 
+def kick_user_processing(message, current_user_id):
+    global admin_user_id
+    if current_user_id == admin_user_id:
+        tmp = message.split()
+        if len(tmp) == 2:
+            kick_user = tmp[1]
+            if kick_user != current_user_id:
+                print("kick user", kick_user)
+                user_leave(int(kick_user))
 
 
 def broadcasting(message, current_user_id):
@@ -201,8 +195,7 @@ def broadcasting(message, current_user_id):
     if message != '':
         for each_user_id in client_users.keys():
             if each_user_id != current_user_id:
-                send_message(client_users[each_user_id], str(current_user_id)+":"+message)
-
+                send_message(client_users[each_user_id], str(current_user_id) + ":" + message)
 
 
 if __name__ == '__main__':
