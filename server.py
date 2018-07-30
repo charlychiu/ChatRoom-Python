@@ -36,66 +36,52 @@ def server():
 
 
 def user_join(socket_connection):
-    global user_id
-    user_id += 1
-    current_user_id = user_id
+    current_user_id = generate_new_user()
 
-    global client_users
-    client_users[current_user_id] = socket_connection
+    set_socket_connection_list(current_user_id, socket_connection)
 
-    # Assign room admin
-    if len(client_users) == 1:
-        global admin_user_id
-        admin_user_id = current_user_id
-
-    # Start Thread session
-    global client_users_thread
-    client_users_thread[current_user_id] = threading.Thread(target=client_thread,
-                                                            args=(socket_connection, current_user_id))
-    client_users_thread[current_user_id].start()
+    start_user_session(current_user_id, socket_connection)
 
     print(current_user_id, "join")
     broadcasting("***join chatroom***", current_user_id)
 
 
-def client_thread(connection, current_user_id):
-    global admin_user_id
-
+def client_thread(socket_connection, current_user_id):
     # first welcome msg to client when enter chat room
-    send_message(connection, "Server: Hello")
+    send_message(socket_connection, "Server: Hello")
 
-    # let current user know itself is admin
-    if current_user_id == admin_user_id:
-        send_message(connection, "Server: you are room admin!")
+    # let current user know its role
+    if check_admin_permission(current_user_id):
+        send_message(socket_connection, "Server: you are room admin!")
 
     client_listening(current_user_id)
 
 
-def user_leave(current_user_id, avtive = True):
+def user_leave(current_user_id, active=True):
     broadcasting("***leave chatroom***", current_user_id)
     # close connection
     global client_users
-    global client_users_thread
-    if avtive:
+
+    if active:
         try:
             client_users[current_user_id].close()
         except:
             pass
-    del client_users[current_user_id]
-    del client_users_thread[current_user_id]
 
     # admin leave , clean mute_users
-    global admin_user_id
-    if current_user_id == admin_user_id:
-        global mute_users
-        mute_users = []
+    if check_admin_permission():
+        clean_mute_list()
+
+    remote_user(current_user_id)
+
+
 
     print(current_user_id, "leave")
 
 
 def send_message(socket_connection, message):
-    tmp = message + "\n"
-    socket_connection.send(tmp.encode('utf-8'))
+    msg = message + "\n"
+    socket_connection.send(msg.encode('utf-8'))
 
 
 def client_listening(current_user_id):
@@ -107,11 +93,14 @@ def client_listening(current_user_id):
                 user_leave(current_user_id)
                 return
             elif "unmute>" in client_msg:
-                unmuted_user(client_msg, current_user_id)
+                if check_admin_permission(current_user_id):
+                    unmuted_user(client_msg, current_user_id)
             elif "mute>" in client_msg:
-                muted_user(client_msg, current_user_id)
+                if check_admin_permission(current_user_id):
+                    muted_user(client_msg, current_user_id)
             elif "kick>" in client_msg:
-                kick_user_processing(client_msg, current_user_id)
+                if check_admin_permission(current_user_id):
+                    kick_user_processing(client_msg, current_user_id)
             elif "crush" == client_msg:
                 return
             else:
@@ -122,81 +111,146 @@ def client_listening(current_user_id):
 def fetch_message(current_user_id):
     global client_users
     try:
-        tmp = client_users[current_user_id].recv(1024)
-        if not tmp:
-            tmp = ''
-            pass
+        if check_user_exist(current_user_id):
+            tmp = client_users[current_user_id].recv(1024)
+            if not tmp:
+                tmp = ''
+                pass
+            else:
+                tmp = tmp.decode('utf-8')
+                return tmp
         else:
-            tmp = tmp.decode('utf-8')
-            return tmp
+            return 'crush'
     except:
-        user_leave(current_user_id, False)
+        if check_user_exist(current_user_id):
+            user_leave(current_user_id, False)
         return 'crush'
-
-    # return tmp or ""
-
-    # tmp = ''
-    # try:
-    #     tmp = client_users[current_user_id].recv(1024)
-    # except:
-    #     # user_leave(current_user_id)
-    #     pass
-    #     # socket_connection.close()
-    # return tmp
 
 
 def muted_user(message, current_user_id):
-    global admin_user_id
-    if current_user_id == admin_user_id:
-        tmp = message.split()
-        if len(tmp) == 2:
-            muted_user_id = tmp[1]
-            if muted_user_id != current_user_id:
-                global mute_users
-                mute_users.append(int(muted_user_id))
-                print("add muted user", muted_user_id)
+    tmp = message.split()
+    if len(tmp) == 2:
+        muted_user_id = tmp[1]
+        if check_user_exist(muted_user_id) and int(muted_user_id) != int(current_user_id):
+            add_mute_user(muted_user_id)
+            system_notify(current_user_id, "muted action success")
+            print("add muted user", muted_user_id)
+        else:
+            system_notify(current_user_id, "muted action fail")
 
 
 def unmuted_user(message, current_user_id):
-    global admin_user_id
-    if current_user_id == admin_user_id:
-        tmp = message.split()
-        if len(tmp) == 2:
-            unmuted_user_id = tmp[1]
-            if unmuted_user_id != current_user_id:
-                global mute_users
-                mute_users.remove(int(unmuted_user_id))
-                print("remove muted user", unmuted_user_id)
+    tmp = message.split()
+    if len(tmp) == 2:
+        unmuted_user_id = tmp[1]
+        if check_user_exist(unmuted_user_id) and int(unmuted_user_id) != int(current_user_id):
+            remote_mute_user(unmuted_user_id)
+            system_notify(current_user_id, "unmuted action success")
+            print("remove muted user", unmuted_user_id)
+        else:
+            system_notify(current_user_id, "unmuted action fail")
 
 
 def filter_muted_user(message, current_user_id):
     global mute_users
     if current_user_id in mute_users:
-        global client_users
-        send_message(client_users[current_user_id], "you had been muted")
+        system_notify(current_user_id, "you had been muted")
         return ''
     else:
         return message
 
 
 def kick_user_processing(message, current_user_id):
-    global admin_user_id
-    if current_user_id == admin_user_id:
+    if check_admin_permission(current_user_id):
         tmp = message.split()
         if len(tmp) == 2:
             kick_user = tmp[1]
-            if kick_user != current_user_id:
+            global client_users
+            if check_user_exist(kick_user) and int(kick_user) != int(current_user_id):
                 print("kick user", kick_user)
                 user_leave(int(kick_user))
+            else:
+                system_notify(current_user_id, "user not found")
 
 
 def broadcasting(message, current_user_id):
     global client_users
     if message != '':
         for each_user_id in client_users.keys():
-            if each_user_id != current_user_id:
+            if each_user_id != int(current_user_id):
                 send_message(client_users[each_user_id], str(current_user_id) + ":" + message)
 
+
+def check_admin_permission(user):
+    global admin_user_id
+    if int(user) == admin_user_id:
+        return True
+    else:
+        return False
+
+
+def check_user_exist(user):
+    global client_users
+    if int(user) in client_users:
+        return True
+    else:
+        return False
+
+
+def set_admin_user(user):
+    global admin_user_id
+    admin_user_id = user
+
+
+def clean_mute_list():
+    global mute_users
+    mute_users = []
+
+
+def remote_user(user):
+    global client_users
+    if int(user) in client_users:
+        del client_users[int(user)]
+
+    global client_users_thread
+    if int(user) in client_users_thread:
+        del client_users_thread[int(user)]
+
+
+def generate_new_user():
+    global user_id
+    user_id += 1
+    return user_id
+
+
+def set_socket_connection_list(user, socket_connection):
+    global client_users
+    client_users[int(user)] = socket_connection
+    # Assign room admin
+    if len(client_users) == 1:
+        set_admin_user(user)
+
+
+def start_user_session(user, socket_connection):
+    global client_users_thread
+    client_users_thread[int(user)] = threading.Thread(target=client_thread, args=(socket_connection, int(user)))
+    client_users_thread[int(user)].start()
+
+
+def add_mute_user(user):
+    global mute_users
+    if int(user) not in mute_users:
+        mute_users.append(int(user))
+
+
+def remote_mute_user(user):
+    global mute_users
+    if int(user) in mute_users:
+        mute_users.remove(int(user))
+
+def system_notify(user, message):
+    global client_users
+    send_message(client_users[user], message)
 
 if __name__ == '__main__':
     server()
