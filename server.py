@@ -46,17 +46,6 @@ def user_join(socket_connection):
     broadcasting("***join chatroom***", current_user_id)
 
 
-def client_thread(socket_connection, current_user_id):
-    # first welcome msg to client when enter chat room
-    send_message(socket_connection, "Server: Hello")
-
-    # let current user know its role
-    if check_admin_permission(current_user_id):
-        send_message(socket_connection, "Server: you are room admin!")
-
-    client_listening(current_user_id)
-
-
 def user_leave(current_user_id, active=True):
     broadcasting("***leave chatroom***", current_user_id)
     # close connection
@@ -69,19 +58,23 @@ def user_leave(current_user_id, active=True):
             pass
 
     # admin leave , clean mute_users
-    if check_admin_permission():
+    if check_admin_permission(current_user_id):
         clean_mute_list()
 
     remote_user(current_user_id)
 
-
-
     print(current_user_id, "leave")
 
 
-def send_message(socket_connection, message):
-    msg = message + "\n"
-    socket_connection.send(msg.encode('utf-8'))
+def client_thread(socket_connection, current_user_id):
+    # first welcome msg to client when enter chat room
+    send_message(socket_connection, "Server: Hello")
+
+    # let current user know its role
+    if check_admin_permission(current_user_id):
+        send_message(socket_connection, "Server: you are room admin!")
+
+    client_listening(current_user_id)
 
 
 def client_listening(current_user_id):
@@ -95,17 +88,28 @@ def client_listening(current_user_id):
             elif "unmute>" in client_msg:
                 if check_admin_permission(current_user_id):
                     unmuted_user(client_msg, current_user_id)
+                else:
+                    system_notify(current_user_id, "permission denied")
             elif "mute>" in client_msg:
                 if check_admin_permission(current_user_id):
                     muted_user(client_msg, current_user_id)
+                else:
+                    system_notify(current_user_id, "permission denied")
             elif "kick>" in client_msg:
                 if check_admin_permission(current_user_id):
                     kick_user_processing(client_msg, current_user_id)
+                else:
+                    system_notify(current_user_id, "permission denied")
             elif "crush" == client_msg:
                 return
             else:
                 client_msg = filter_muted_user(client_msg, current_user_id)
                 broadcasting(client_msg, current_user_id)
+
+
+def send_message(socket_connection, message):
+    msg = message + "\n"
+    socket_connection.send(msg.encode('utf-8'))
 
 
 def fetch_message(current_user_id):
@@ -125,6 +129,14 @@ def fetch_message(current_user_id):
         if check_user_exist(current_user_id):
             user_leave(current_user_id, False)
         return 'crush'
+
+
+def broadcasting(message, current_user_id):
+    global client_users
+    if message != '':
+        for each_user_id in client_users.keys():
+            if each_user_id != int(current_user_id):
+                send_message(client_users[each_user_id], str(current_user_id) + ":" + message)
 
 
 def muted_user(message, current_user_id):
@@ -173,12 +185,39 @@ def kick_user_processing(message, current_user_id):
                 system_notify(current_user_id, "user not found")
 
 
-def broadcasting(message, current_user_id):
+def generate_new_user():
+    global user_id
+    user_id += 1
+    return user_id
+
+
+def set_admin_user(user):
+    global admin_user_id
+    admin_user_id = user
+
+
+def start_user_session(user, socket_connection):
+    global client_users_thread
+    client_users_thread[int(user)] = threading.Thread(target=client_thread, args=(socket_connection, int(user)))
+    client_users_thread[int(user)].start()
+
+
+def set_socket_connection_list(user, socket_connection):
     global client_users
-    if message != '':
-        for each_user_id in client_users.keys():
-            if each_user_id != int(current_user_id):
-                send_message(client_users[each_user_id], str(current_user_id) + ":" + message)
+    client_users[int(user)] = socket_connection
+    # Assign room admin
+    if len(client_users) == 1:
+        set_admin_user(user)
+
+
+def remote_user(user):
+    global client_users
+    if int(user) in client_users:
+        del client_users[int(user)]
+
+    global client_users_thread
+    if int(user) in client_users_thread:
+        del client_users_thread[int(user)]
 
 
 def check_admin_permission(user):
@@ -197,46 +236,6 @@ def check_user_exist(user):
         return False
 
 
-def set_admin_user(user):
-    global admin_user_id
-    admin_user_id = user
-
-
-def clean_mute_list():
-    global mute_users
-    mute_users = []
-
-
-def remote_user(user):
-    global client_users
-    if int(user) in client_users:
-        del client_users[int(user)]
-
-    global client_users_thread
-    if int(user) in client_users_thread:
-        del client_users_thread[int(user)]
-
-
-def generate_new_user():
-    global user_id
-    user_id += 1
-    return user_id
-
-
-def set_socket_connection_list(user, socket_connection):
-    global client_users
-    client_users[int(user)] = socket_connection
-    # Assign room admin
-    if len(client_users) == 1:
-        set_admin_user(user)
-
-
-def start_user_session(user, socket_connection):
-    global client_users_thread
-    client_users_thread[int(user)] = threading.Thread(target=client_thread, args=(socket_connection, int(user)))
-    client_users_thread[int(user)].start()
-
-
 def add_mute_user(user):
     global mute_users
     if int(user) not in mute_users:
@@ -248,9 +247,16 @@ def remote_mute_user(user):
     if int(user) in mute_users:
         mute_users.remove(int(user))
 
+
+def clean_mute_list():
+    global mute_users
+    mute_users = []
+
+
 def system_notify(user, message):
     global client_users
     send_message(client_users[user], message)
+
 
 if __name__ == '__main__':
     server()
